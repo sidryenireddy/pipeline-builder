@@ -1,4 +1,4 @@
-.PHONY: up down dev test build lint clean
+.PHONY: up down dev dev-api dev-engine dev-frontend test build lint clean stop-dev
 
 up:
 	docker compose up -d
@@ -7,24 +7,32 @@ down:
 	docker compose down
 
 dev:
-	docker compose up -d postgres
-	$(MAKE) -j3 dev-api dev-engine dev-frontend
+	@echo "Starting API on :8000, Engine on :8001, Frontend on :3000"
+	@$(MAKE) dev-api &
+	@$(MAKE) dev-engine &
+	@$(MAKE) dev-frontend &
+	@wait
 
 dev-api:
 	cd api && go run ./cmd/server
 
 dev-engine:
-	cd engine && uvicorn pipeline_engine.main:app --reload --port 8001
+	cd engine && .venv/bin/python -m uvicorn pipeline_engine.main:app --reload --port 8001
 
 dev-frontend:
 	cd frontend && npm run dev
+
+stop-dev:
+	-pkill -f "go run ./cmd/server" 2>/dev/null || true
+	-pkill -f "uvicorn pipeline_engine" 2>/dev/null || true
+	-pkill -f "next dev" 2>/dev/null || true
 
 build:
 	docker compose build
 
 test:
 	cd api && go test ./...
-	cd engine && pytest
+	cd engine && python3 -m pytest
 	cd frontend && npm test
 
 lint:

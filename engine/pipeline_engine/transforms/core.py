@@ -3,9 +3,12 @@ import pandas as pd
 
 
 def transform_input(config: dict, inputs: list[pd.DataFrame]) -> pd.DataFrame:
-    """Load a dataset from Data Connection by dataset_id."""
-    # In production, this fetches from the Data Connection storage layer.
-    # For now, return an empty DataFrame or sample data.
+    """Load a dataset. Supports inline data via config for testing,
+    or dataset_id for production Data Connection integration."""
+    if "data" in config:
+        return pd.DataFrame(config["data"])
+    if "columns" in config and "rows" in config:
+        return pd.DataFrame(config["rows"], columns=config["columns"])
     return pd.DataFrame()
 
 
