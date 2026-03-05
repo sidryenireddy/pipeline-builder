@@ -1,8 +1,11 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -47,6 +50,13 @@ var (
 	edges      = map[string]*edgeRecord{}
 )
 
+func engineURL() string {
+	if u := os.Getenv("ENGINE_URL"); u != "" {
+		return u
+	}
+	return "http://localhost:8001"
+}
+
 func PipelineRoutes(r chi.Router) {
 	r.Get("/", listPipelines)
 	r.Post("/", createPipeline)
@@ -54,6 +64,7 @@ func PipelineRoutes(r chi.Router) {
 		r.Get("/", getPipeline)
 		r.Put("/", updatePipeline)
 		r.Delete("/", deletePipeline)
+		r.Put("/save", bulkSavePipeline)
 		r.Route("/branches", BranchRoutes)
 		r.Route("/transforms", TransformRoutes)
 		r.Route("/edges", EdgeRoutes)
@@ -71,7 +82,8 @@ func TransformRoutes(r chi.Router) {
 	r.Post("/", createTransform)
 	r.Put("/{transformID}", updateTransform)
 	r.Delete("/{transformID}", deleteTransform)
-	r.Post("/{transformID}/preview", previewTransform)
+	r.Post("/{transformID}/preview", proxyPreview)
+	r.Post("/{transformID}/schema", proxySchema)
 }
 
 func EdgeRoutes(r chi.Router) {
@@ -121,14 +133,11 @@ func getPipeline(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "pipelineID")
 	mu.RLock()
 	p, ok := pipelines[id]
-	mu.RUnlock()
 	if !ok {
+		mu.RUnlock()
 		respondError(w, http.StatusNotFound, "pipeline not found")
 		return
 	}
-
-	// Gather transforms and edges for this pipeline
-	mu.RLock()
 	var ts []*transformRecord
 	for _, t := range transforms {
 		if t.PipelineID == id {
@@ -142,6 +151,13 @@ func getPipeline(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	mu.RUnlock()
+
+	if ts == nil {
+		ts = []*transformRecord{}
+	}
+	if es == nil {
+		es = []*edgeRecord{}
+	}
 
 	respondJSON(w, http.StatusOK, map[string]any{
 		"id":          p.ID,
@@ -179,7 +195,6 @@ func deletePipeline(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "pipelineID")
 	mu.Lock()
 	delete(pipelines, id)
-	// Clean up transforms and edges
 	for tid, t := range transforms {
 		if t.PipelineID == id {
 			delete(transforms, tid)
@@ -192,6 +207,112 @@ func deletePipeline(w http.ResponseWriter, r *http.Request) {
 	}
 	mu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Bulk Save (autosave from frontend) ---
+
+type BulkSaveRequest struct {
+	Transforms []struct {
+		ID        string         `json:"id"`
+		Type      string         `json:"type"`
+		Name      string         `json:"name"`
+		Config    map[string]any `json:"config"`
+		PositionX float64        `json:"position_x"`
+		PositionY float64        `json:"position_y"`
+	} `json:"transforms"`
+	Edges []struct {
+		ID                string `json:"id"`
+		SourceTransformID string `json:"source_transform_id"`
+		TargetTransformID string `json:"target_transform_id"`
+		SourcePort        string `json:"source_port"`
+		TargetPort        string `json:"target_port"`
+	} `json:"edges"`
+}
+
+func bulkSavePipeline(w http.ResponseWriter, r *http.Request) {
+	pipelineID := chi.URLParam(r, "pipelineID")
+	mu.RLock()
+	_, ok := pipelines[pipelineID]
+	mu.RUnlock()
+	if !ok {
+		respondError(w, http.StatusNotFound, "pipeline not found")
+		return
+	}
+
+	var req BulkSaveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	mu.Lock()
+	// Remove old transforms and edges for this pipeline
+	for tid, t := range transforms {
+		if t.PipelineID == pipelineID {
+			delete(transforms, tid)
+		}
+	}
+	for eid, e := range edges {
+		if e.PipelineID == pipelineID {
+			delete(edges, eid)
+		}
+	}
+
+	// Insert new transforms
+	for _, t := range req.Transforms {
+		id := t.ID
+		if id == "" {
+			id = uuid.New().String()
+		}
+		cfg := t.Config
+		if cfg == nil {
+			cfg = map[string]any{}
+		}
+		transforms[id] = &transformRecord{
+			ID:         id,
+			PipelineID: pipelineID,
+			Type:       t.Type,
+			Name:       t.Name,
+			Config:     cfg,
+			PositionX:  t.PositionX,
+			PositionY:  t.PositionY,
+			CreatedAt:  now,
+			UpdatedAt:  now,
+		}
+	}
+
+	// Insert new edges
+	for _, e := range req.Edges {
+		id := e.ID
+		if id == "" {
+			id = uuid.New().String()
+		}
+		sp := e.SourcePort
+		if sp == "" {
+			sp = "output"
+		}
+		tp := e.TargetPort
+		if tp == "" {
+			tp = "input"
+		}
+		edges[id] = &edgeRecord{
+			ID:                id,
+			PipelineID:        pipelineID,
+			SourceTransformID: e.SourceTransformID,
+			TargetTransformID: e.TargetTransformID,
+			SourcePort:        sp,
+			TargetPort:        tp,
+			CreatedAt:         now,
+		}
+	}
+
+	if p, ok := pipelines[pipelineID]; ok {
+		p.UpdatedAt = now
+	}
+	mu.Unlock()
+
+	respondJSON(w, http.StatusOK, map[string]string{"status": "saved"})
 }
 
 // --- Branches (stubs) ---
@@ -295,8 +416,97 @@ func deleteTransform(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func previewTransform(w http.ResponseWriter, r *http.Request) {
-	respondJSON(w, http.StatusOK, map[string]any{"rows": []any{}, "columns": []any{}})
+// --- Engine Proxies ---
+
+func buildDAGPayload(pipelineID string, targetTransformID string) ([]byte, error) {
+	mu.RLock()
+	defer mu.RUnlock()
+
+	var dagTransforms []map[string]any
+	for _, t := range transforms {
+		if t.PipelineID == pipelineID {
+			dagTransforms = append(dagTransforms, map[string]any{
+				"id":     t.ID,
+				"type":   t.Type,
+				"name":   t.Name,
+				"config": t.Config,
+			})
+		}
+	}
+
+	var dagEdges []map[string]any
+	for _, e := range edges {
+		if e.PipelineID == pipelineID {
+			dagEdges = append(dagEdges, map[string]any{
+				"source_id":   e.SourceTransformID,
+				"target_id":   e.TargetTransformID,
+				"source_port": e.SourcePort,
+				"target_port": e.TargetPort,
+			})
+		}
+	}
+
+	if dagTransforms == nil {
+		dagTransforms = []map[string]any{}
+	}
+	if dagEdges == nil {
+		dagEdges = []map[string]any{}
+	}
+
+	return json.Marshal(map[string]any{
+		"dag": map[string]any{
+			"pipeline_id": pipelineID,
+			"branch_id":   "main",
+			"transforms":  dagTransforms,
+			"edges":       dagEdges,
+		},
+		"target_transform_id": targetTransformID,
+		"limit":               50,
+	})
+}
+
+func proxyPreview(w http.ResponseWriter, r *http.Request) {
+	pipelineID := chi.URLParam(r, "pipelineID")
+	transformID := chi.URLParam(r, "transformID")
+
+	body, err := buildDAGPayload(pipelineID, transformID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to build DAG")
+		return
+	}
+
+	resp, err := http.Post(engineURL()+"/api/v1/preview", "application/json", bytes.NewReader(body))
+	if err != nil {
+		respondError(w, http.StatusBadGateway, "engine unavailable")
+		return
+	}
+	defer resp.Body.Close()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
+}
+
+func proxySchema(w http.ResponseWriter, r *http.Request) {
+	pipelineID := chi.URLParam(r, "pipelineID")
+	transformID := chi.URLParam(r, "transformID")
+
+	body, err := buildDAGPayload(pipelineID, transformID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to build DAG")
+		return
+	}
+
+	resp, err := http.Post(engineURL()+"/api/v1/schema", "application/json", bytes.NewReader(body))
+	if err != nil {
+		respondError(w, http.StatusBadGateway, "engine unavailable")
+		return
+	}
+	defer resp.Body.Close()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
 }
 
 // --- Edges ---

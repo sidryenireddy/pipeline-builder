@@ -10,9 +10,23 @@ from pipeline_engine.models import (
 from pipeline_engine.transforms import registry
 
 
+def dtype_to_string(dtype) -> str:
+    s = str(dtype)
+    _map = {
+        "object": "string",
+        "str": "string",
+        "int64": "integer",
+        "int32": "integer",
+        "float64": "float",
+        "float32": "float",
+        "bool": "boolean",
+        "datetime64[ns]": "timestamp",
+    }
+    return _map.get(s, s)
+
+
 class PipelineExecutor:
     def resolve_execution_order(self, dag: PipelineDAG) -> list[str]:
-        """Topological sort of transform nodes."""
         adjacency: dict[str, list[str]] = {t.id: [] for t in dag.transforms}
         in_degree: dict[str, int] = {t.id: 0 for t in dag.transforms}
 
@@ -77,9 +91,13 @@ class PipelineExecutor:
         truncated = len(df) > req.limit
         df_limited = df.head(req.limit)
 
+        # Convert NaN/NaT to None for JSON serialization
+        df_clean = df_limited.where(df_limited.notna(), None)
+
         return PreviewResponse(
-            columns=list(df_limited.columns),
-            rows=df_limited.to_dict(orient="records"),
+            columns=list(df_clean.columns),
+            column_types=[dtype_to_string(df_clean[c].dtype) for c in df_clean.columns],
+            rows=df_clean.to_dict(orient="records"),
             row_count=len(df),
             truncated=truncated,
         )

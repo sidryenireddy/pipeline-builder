@@ -1,14 +1,8 @@
 "use client";
 
+import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { TransformType } from "@/types/pipeline";
-
-interface TransformNodeData {
-  label: string;
-  transformType: TransformType;
-  config: Record<string, unknown>;
-  [key: string]: unknown;
-}
 
 const TYPE_COLORS: Record<string, string> = {
   input: "border-l-green-600",
@@ -18,7 +12,10 @@ const TYPE_COLORS: Record<string, string> = {
   union: "border-l-purple-400",
   aggregate: "border-l-orange-500",
   pivot: "border-l-orange-400",
+  unpivot: "border-l-orange-300",
   rename: "border-l-gray-500",
+  drop_columns: "border-l-gray-400",
+  select_columns: "border-l-gray-600",
   cast: "border-l-gray-400",
   sort: "border-l-cyan-500",
   deduplicate: "border-l-teal-500",
@@ -26,9 +23,31 @@ const TYPE_COLORS: Record<string, string> = {
   llm: "border-l-rebel-red",
 };
 
-export function TransformNode({ data, selected }: NodeProps) {
-  const nodeData = data as unknown as TransformNodeData;
-  const borderClass = TYPE_COLORS[nodeData.transformType] || "border-l-gray-400";
+const TYPE_LABELS: Record<string, string> = {
+  input: "INPUT",
+  output: "OUTPUT",
+  filter: "FILTER",
+  join: "JOIN",
+  union: "UNION",
+  aggregate: "AGGREGATE",
+  pivot: "PIVOT",
+  unpivot: "UNPIVOT",
+  rename: "RENAME",
+  drop_columns: "DROP",
+  select_columns: "SELECT",
+  cast: "CAST",
+  sort: "SORT",
+  deduplicate: "DEDUP",
+  expression: "EXPR",
+  llm: "LLM",
+};
+
+function TransformNodeInner({ data, selected }: NodeProps) {
+  const transformType = (data as any).transformType as TransformType;
+  const label = (data as any).label as string;
+  const borderClass = TYPE_COLORS[transformType] || "border-l-gray-400";
+  const hasTarget = transformType !== "input";
+  const hasSource = transformType !== "output";
 
   return (
     <div
@@ -36,7 +55,7 @@ export function TransformNode({ data, selected }: NodeProps) {
         selected ? "ring-2 ring-rebel-red/20" : ""
       }`}
     >
-      {nodeData.transformType !== "input" && (
+      {hasTarget && (
         <Handle
           type="target"
           position={Position.Top}
@@ -44,14 +63,14 @@ export function TransformNode({ data, selected }: NodeProps) {
         />
       )}
 
-      <div className="text-xs font-medium uppercase tracking-wider text-gray-400">
-        {nodeData.transformType}
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+        {TYPE_LABELS[transformType] || transformType}
       </div>
       <div className="mt-0.5 text-sm font-medium text-gray-900">
-        {nodeData.label}
+        {label}
       </div>
 
-      {nodeData.transformType !== "output" && (
+      {hasSource && (
         <Handle
           type="source"
           position={Position.Bottom}
@@ -61,3 +80,5 @@ export function TransformNode({ data, selected }: NodeProps) {
     </div>
   );
 }
+
+export const TransformNode = memo(TransformNodeInner);

@@ -1,7 +1,10 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import type { Pipeline, PreviewData, SchemaData } from "@/types/pipeline";
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const ENGINE_URL = process.env.NEXT_PUBLIC_ENGINE_URL || "http://localhost:8001";
+
+async function request<T>(base: string, path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${base}${path}`, {
     headers: { "Content-Type": "application/json" },
     ...options,
   });
@@ -13,58 +16,52 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+const apiReq = <T>(path: string, options?: RequestInit) => request<T>(API_URL, path, options);
+const engineReq = <T>(path: string, options?: RequestInit) => request<T>(ENGINE_URL, path, options);
+
 export const api = {
   pipelines: {
-    list: () => request<any[]>("/api/v1/pipelines"),
+    list: () => apiReq<Pipeline[]>("/api/v1/pipelines"),
     create: (data: { name: string; description: string }) =>
-      request<any>("/api/v1/pipelines", { method: "POST", body: JSON.stringify(data) }),
-    get: (id: string) => request<any>(`/api/v1/pipelines/${id}`),
+      apiReq<Pipeline>("/api/v1/pipelines", { method: "POST", body: JSON.stringify(data) }),
+    get: (id: string) => apiReq<Pipeline>(`/api/v1/pipelines/${id}`),
     update: (id: string, data: any) =>
-      request<any>(`/api/v1/pipelines/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+      apiReq<Pipeline>(`/api/v1/pipelines/${id}`, { method: "PUT", body: JSON.stringify(data) }),
     delete: (id: string) =>
-      request<void>(`/api/v1/pipelines/${id}`, { method: "DELETE" }),
-  },
-  transforms: {
-    list: (pipelineId: string) =>
-      request<any[]>(`/api/v1/pipelines/${pipelineId}/transforms`),
-    create: (pipelineId: string, data: any) =>
-      request<any>(`/api/v1/pipelines/${pipelineId}/transforms`, {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-    update: (pipelineId: string, transformId: string, data: any) =>
-      request<any>(`/api/v1/pipelines/${pipelineId}/transforms/${transformId}`, {
+      apiReq<void>(`/api/v1/pipelines/${id}`, { method: "DELETE" }),
+    bulkSave: (id: string, data: { transforms: any[]; edges: any[] }) =>
+      apiReq<{ status: string }>(`/api/v1/pipelines/${id}/save`, {
         method: "PUT",
         body: JSON.stringify(data),
       }),
-    delete: (pipelineId: string, transformId: string) =>
-      request<void>(`/api/v1/pipelines/${pipelineId}/transforms/${transformId}`, {
-        method: "DELETE",
-      }),
-    preview: (pipelineId: string, transformId: string) =>
-      request<any>(`/api/v1/pipelines/${pipelineId}/transforms/${transformId}/preview`, {
-        method: "POST",
-      }),
   },
-  edges: {
+  transforms: {
     list: (pipelineId: string) =>
-      request<any[]>(`/api/v1/pipelines/${pipelineId}/edges`),
+      apiReq<any[]>(`/api/v1/pipelines/${pipelineId}/transforms`),
     create: (pipelineId: string, data: any) =>
-      request<any>(`/api/v1/pipelines/${pipelineId}/edges`, {
+      apiReq<any>(`/api/v1/pipelines/${pipelineId}/transforms`, {
         method: "POST",
         body: JSON.stringify(data),
       }),
-    delete: (pipelineId: string, edgeId: string) =>
-      request<void>(`/api/v1/pipelines/${pipelineId}/edges/${edgeId}`, {
-        method: "DELETE",
+    preview: (pipelineId: string, transformId: string) =>
+      apiReq<PreviewData>(`/api/v1/pipelines/${pipelineId}/transforms/${transformId}/preview`, {
+        method: "POST",
+      }),
+    schema: (pipelineId: string, transformId: string) =>
+      apiReq<SchemaData>(`/api/v1/pipelines/${pipelineId}/transforms/${transformId}/schema`, {
+        method: "POST",
       }),
   },
-  builds: {
-    list: () => request<any[]>("/api/v1/builds"),
-    trigger: (data: { pipeline_id: string; branch_id: string }) =>
-      request<any>("/api/v1/builds", { method: "POST", body: JSON.stringify(data) }),
-    get: (id: string) => request<any>(`/api/v1/builds/${id}`),
-    cancel: (id: string) =>
-      request<any>(`/api/v1/builds/${id}/cancel`, { method: "POST" }),
+  engine: {
+    preview: (dag: any, targetTransformId: string, limit = 50) =>
+      engineReq<PreviewData>("/api/v1/preview", {
+        method: "POST",
+        body: JSON.stringify({ dag, target_transform_id: targetTransformId, limit }),
+      }),
+    schema: (dag: any, targetTransformId: string) =>
+      engineReq<SchemaData>("/api/v1/schema", {
+        method: "POST",
+        body: JSON.stringify({ dag, target_transform_id: targetTransformId }),
+      }),
   },
 };
