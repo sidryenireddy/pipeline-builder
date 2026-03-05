@@ -1,0 +1,386 @@
+openapi: 3.1.0
+info:
+  title: Pipeline Builder API
+  version: 0.1.0
+  description: Visual no-code data transformation platform API
+
+servers:
+  - url: http://localhost:8000
+    description: Local development
+
+paths:
+  /api/v1/pipelines:
+    get:
+      summary: List pipelines
+      operationId: listPipelines
+      responses:
+        "200":
+          description: List of pipelines
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Pipeline"
+    post:
+      summary: Create a pipeline
+      operationId: createPipeline
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePipelineRequest"
+      responses:
+        "201":
+          description: Created pipeline
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pipeline"
+
+  /api/v1/pipelines/{pipelineId}:
+    parameters:
+      - name: pipelineId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: Get a pipeline
+      operationId: getPipeline
+      responses:
+        "200":
+          description: Pipeline details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pipeline"
+    put:
+      summary: Update a pipeline
+      operationId: updatePipeline
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePipelineRequest"
+      responses:
+        "200":
+          description: Updated pipeline
+    delete:
+      summary: Delete a pipeline
+      operationId: deletePipeline
+      responses:
+        "204":
+          description: Deleted
+
+  /api/v1/pipelines/{pipelineId}/transforms:
+    parameters:
+      - name: pipelineId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: List transforms in a pipeline
+      operationId: listTransforms
+      responses:
+        "200":
+          description: List of transforms
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Transform"
+    post:
+      summary: Add a transform
+      operationId: createTransform
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTransformRequest"
+      responses:
+        "201":
+          description: Created transform
+
+  /api/v1/pipelines/{pipelineId}/transforms/{transformId}/preview:
+    parameters:
+      - name: pipelineId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: transformId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      summary: Preview transform output
+      operationId: previewTransform
+      responses:
+        "200":
+          description: Preview data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PreviewResponse"
+
+  /api/v1/builds:
+    get:
+      summary: List builds
+      operationId: listBuilds
+      responses:
+        "200":
+          description: List of builds
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Build"
+    post:
+      summary: Trigger a build
+      operationId: triggerBuild
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TriggerBuildRequest"
+      responses:
+        "201":
+          description: Build triggered
+
+  /api/v1/schedules:
+    get:
+      summary: List schedules
+      operationId: listSchedules
+      responses:
+        "200":
+          description: List of schedules
+    post:
+      summary: Create a schedule
+      operationId: createSchedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateScheduleRequest"
+      responses:
+        "201":
+          description: Schedule created
+
+components:
+  schemas:
+    Pipeline:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        owner_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreatePipelineRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+
+    Transform:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        pipeline_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [input, output, filter, join, union, aggregate, pivot, rename, cast, sort, deduplicate, expression, llm]
+        name:
+          type: string
+        config:
+          type: object
+        position_x:
+          type: number
+        position_y:
+          type: number
+
+    CreateTransformRequest:
+      type: object
+      required: [type, name]
+      properties:
+        type:
+          type: string
+        name:
+          type: string
+        config:
+          type: object
+        position_x:
+          type: number
+        position_y:
+          type: number
+
+    Edge:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        source_transform_id:
+          type: string
+          format: uuid
+        target_transform_id:
+          type: string
+          format: uuid
+        source_port:
+          type: string
+        target_port:
+          type: string
+
+    Build:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        pipeline_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, running, success, failed, canceled]
+        triggered_by:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+        error:
+          type: string
+
+    TriggerBuildRequest:
+      type: object
+      required: [pipeline_id, branch_id]
+      properties:
+        pipeline_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+
+    Schedule:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        pipeline_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        cron:
+          type: string
+        enabled:
+          type: boolean
+
+    CreateScheduleRequest:
+      type: object
+      required: [pipeline_id, branch_id, cron]
+      properties:
+        pipeline_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        cron:
+          type: string
+
+    Branch:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        pipeline_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        parent_id:
+          type: string
+          format: uuid
+          nullable: true
+        is_default:
+          type: boolean
+
+    DataExpectation:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        transform_id:
+          type: string
+          format: uuid
+        column:
+          type: string
+        rule:
+          type: string
+        config:
+          type: object
+
+    PreviewResponse:
+      type: object
+      properties:
+        columns:
+          type: array
+          items:
+            type: string
+        rows:
+          type: array
+          items:
+            type: object
+        row_count:
+          type: integer
+        truncated:
+          type: boolean

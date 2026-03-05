@@ -1,0 +1,32 @@
+# Go
+api/tmp/
+api/bin/
+
+# Python
+engine/__pycache__/
+engine/.venv/
+engine/*.egg-info/
+*.pyc
+
+# Node
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
